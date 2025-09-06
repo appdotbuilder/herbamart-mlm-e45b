@@ -6,6 +6,9 @@ import {
     type CreatePengaturanKomisi,
     type PengaturanKomisi
 } from '../schema';
+import { db } from '../db';
+import { komisiTable } from '../db/schema';
+import { eq, desc } from 'drizzle-orm';
 
 export async function calculateKomisi(transaksiId: number): Promise<{ success: boolean; komisiCreated: number }> {
     // This is a placeholder declaration! Real code should be implemented here.
@@ -18,32 +21,22 @@ export async function calculateKomisi(transaksiId: number): Promise<{ success: b
 }
 
 export async function getKomisiByAgenId(agenId: number): Promise<Komisi[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching all commission records for a specific agent.
-    return Promise.resolve([
-        {
-            id: 1,
-            agen_id: agenId,
-            transaksi_id: 1,
-            jenis_komisi: 'SPONSOR',
-            level: 1,
-            nominal: 40000,
-            status: 'PENDING',
-            created_at: new Date(),
-            updated_at: new Date()
-        },
-        {
-            id: 2,
-            agen_id: agenId,
-            transaksi_id: 2,
-            jenis_komisi: 'REPEAT_ORDER',
-            level: 1,
-            nominal: 20000,
-            status: 'DIBAYAR',
-            created_at: new Date(),
-            updated_at: new Date()
-        }
-    ]);
+    try {
+        const results = await db.select()
+            .from(komisiTable)
+            .where(eq(komisiTable.agen_id, agenId))
+            .orderBy(desc(komisiTable.created_at))
+            .execute();
+
+        // Convert numeric fields back to numbers before returning
+        return results.map(komisi => ({
+            ...komisi,
+            nominal: parseFloat(komisi.nominal) // Convert numeric field to number
+        }));
+    } catch (error) {
+        console.error('Failed to fetch komisi by agen_id:', error);
+        throw error;
+    }
 }
 
 export async function createPenarikanKomisi(input: CreatePenarikanKomisi): Promise<PenarikanKomisi> {

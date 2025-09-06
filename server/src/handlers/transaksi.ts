@@ -1,23 +1,56 @@
+import { db } from '../db';
+import { transaksiTable, usersTable, agenTable } from '../db/schema';
 import { type CreateTransaksi, type Transaksi } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function createTransaksi(input: CreateTransaksi): Promise<Transaksi> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating new transaction record in database.
-    // Should validate input, create transaction, update stock, and trigger commission calculations.
-    return Promise.resolve({
-        id: 1,
+  try {
+    // Validate that user exists
+    const user = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .execute();
+
+    if (user.length === 0) {
+      throw new Error('User not found');
+    }
+
+    // Validate agen exists if agen_id is provided
+    if (input.agen_id) {
+      const agen = await db.select()
+        .from(agenTable)
+        .where(eq(agenTable.id, input.agen_id))
+        .execute();
+
+      if (agen.length === 0) {
+        throw new Error('Agen not found');
+      }
+    }
+
+    // Insert transaksi record
+    const result = await db.insert(transaksiTable)
+      .values({
         user_id: input.user_id,
         agen_id: input.agen_id,
         tipe_transaksi: input.tipe_transaksi,
-        total_harga: input.total_harga,
+        total_harga: input.total_harga.toString(), // Convert number to string for numeric column
         total_box: input.total_box,
-        status: 'DIPROSES',
-        payment_method: null,
-        payment_reference: null,
-        catatan: input.catatan || null,
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+        status: 'DIPROSES', // Default status
+        catatan: input.catatan || null
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const transaksi = result[0];
+    return {
+      ...transaksi,
+      total_harga: parseFloat(transaksi.total_harga) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Transaksi creation failed:', error);
+    throw error;
+  }
 }
 
 export async function getTransaksiByUserId(userId: number): Promise<Transaksi[]> {

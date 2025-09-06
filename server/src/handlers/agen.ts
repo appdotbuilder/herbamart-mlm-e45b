@@ -1,49 +1,178 @@
-import { 
-    type CreateAgen, 
-    type Agen, 
-    type CreateTransaksi, 
-    type CreateUpgrade, 
-    type Jaringan,
-    type DashboardStats 
-} from '../schema';
+import { db } from '../db';
+import { usersTable, agenTable, jaringanTable } from '../db/schema';
+import { type CreateAgen, type Agen } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
-export async function createAgen(input: CreateAgen): Promise<{ agen: Agen; idAgen: string }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating new agent with unique ID generation and network setup.
-    // Should generate ID format: {provinsi code}-{year}-{sequence}, create user record, agen record, and jaringan records.
-    const generatedId = 'JB-25' + String(Date.now()).slice(-4);
+// Province mapping for agent ID generation
+const provinceCodeMap: Record<string, string> = {
+  'Aceh': 'AC',
+  'Sumatera Utara': 'SU',
+  'Sumatera Barat': 'SB',
+  'Riau': 'RI',
+  'Jambi': 'JA',
+  'Sumatera Selatan': 'SS',
+  'Bengkulu': 'BG',
+  'Lampung': 'LA',
+  'Kepulauan Bangka Belitung': 'BB',
+  'Kepulauan Riau': 'KR',
+  'Jakarta': 'JK',
+  'Jawa Barat': 'JB',
+  'Jawa Tengah': 'JT',
+  'Jawa Timur': 'JI',
+  'Yogyakarta': 'YO',
+  'Banten': 'BT',
+  'Bali': 'BA',
+  'Nusa Tenggara Barat': 'NB',
+  'Nusa Tenggara Timur': 'NT',
+  'Kalimantan Barat': 'KB',
+  'Kalimantan Tengah': 'KT',
+  'Kalimantan Selatan': 'KS',
+  'Kalimantan Timur': 'KI',
+  'Kalimantan Utara': 'KU',
+  'Sulawesi Utara': 'SA',
+  'Sulawesi Tengah': 'ST',
+  'Sulawesi Selatan': 'SN',
+  'Sulawesi Tenggara': 'SE',
+  'Gorontalo': 'GO',
+  'Sulawesi Barat': 'SR',
+  'Maluku': 'MA',
+  'Maluku Utara': 'MU',
+  'Papua Barat': 'PB',
+  'Papua': 'PA'
+};
+
+export const createAgen = async (input: CreateAgen): Promise<{ agen: Agen; idAgen: string }> => {
+  try {
+    // Verify user exists and has AGEN role
+    const user = await db.select()
+      .from(usersTable)
+      .where(and(
+        eq(usersTable.id, input.user_id),
+        eq(usersTable.role, 'AGEN')
+      ))
+      .execute();
+
+    if (user.length === 0) {
+      throw new Error('User not found or not an agent');
+    }
+
+    // Verify sponsor exists if provided
+    if (input.sponsor_id) {
+      const sponsor = await db.select()
+        .from(agenTable)
+        .where(eq(agenTable.id, input.sponsor_id))
+        .execute();
+
+      if (sponsor.length === 0) {
+        throw new Error('Sponsor not found');
+      }
+    }
+
+    // Generate unique agent ID: {province_code}-{year}-{sequence}
+    const currentYear = new Date().getFullYear().toString().slice(-2);
+    const provinceCode = provinceCodeMap[input.provinsi] || 'XX';
     
-    return Promise.resolve({
-        agen: {
-            id: 1,
-            user_id: input.user_id,
-            id_agen: generatedId,
-            nama_lengkap: input.nama_lengkap,
-            nomor_ktp: input.nomor_ktp,
-            jenis_kelamin: input.jenis_kelamin,
-            nomor_hp: input.nomor_hp,
-            email: input.email,
-            alamat_lengkap: input.alamat_lengkap,
-            kelurahan: input.kelurahan,
-            kecamatan: input.kecamatan,
-            kota_kabupaten: input.kota_kabupaten,
-            provinsi: input.provinsi,
-            nomor_rekening: input.nomor_rekening,
-            nama_rekening: input.nama_rekening,
-            sponsor_id: input.sponsor_id || null,
-            status_paket: input.status_paket,
-            peringkat: 'AGEN',
-            tipe_agen: 'AGEN',
-            stok_produk: 0,
-            total_komisi: 0,
-            saldo_komisi: 0,
-            link_referral: `https://herbamart.id/ref/${generatedId}`,
-            created_at: new Date(),
-            updated_at: new Date()
-        },
-        idAgen: generatedId
-    });
-}
+    // Get existing agents to determine sequence
+    const existingAgents = await db.select({ id_agen: agenTable.id_agen })
+      .from(agenTable)
+      .execute();
+
+    let maxSequence = 0;
+    const pattern = new RegExp(`^${provinceCode}-${currentYear}(\\d{4})$`);
+    
+    for (const agent of existingAgents) {
+      const match = agent.id_agen.match(pattern);
+      if (match) {
+        const sequence = parseInt(match[1]);
+        if (sequence > maxSequence) {
+          maxSequence = sequence;
+        }
+      }
+    }
+
+    const newSequence = (maxSequence + 1).toString().padStart(4, '0');
+    const generatedIdAgen = `${provinceCode}-${currentYear}${newSequence}`;
+
+    // Create agent record
+    const agenResult = await db.insert(agenTable)
+      .values({
+        user_id: input.user_id,
+        id_agen: generatedIdAgen,
+        nama_lengkap: input.nama_lengkap,
+        nomor_ktp: input.nomor_ktp,
+        jenis_kelamin: input.jenis_kelamin,
+        nomor_hp: input.nomor_hp,
+        email: input.email,
+        alamat_lengkap: input.alamat_lengkap,
+        kelurahan: input.kelurahan,
+        kecamatan: input.kecamatan,
+        kota_kabupaten: input.kota_kabupaten,
+        provinsi: input.provinsi,
+        nomor_rekening: input.nomor_rekening,
+        nama_rekening: input.nama_rekening,
+        sponsor_id: input.sponsor_id,
+        status_paket: input.status_paket,
+        link_referral: `https://herbamart.id/ref/${generatedIdAgen}`
+      })
+      .returning()
+      .execute();
+
+    const newAgen = agenResult[0];
+
+    // Create network structure if sponsor exists
+    if (input.sponsor_id) {
+      // Get sponsor's network levels
+      const sponsorNetwork = await db.select()
+        .from(jaringanTable)
+        .where(eq(jaringanTable.agen_id, input.sponsor_id))
+        .execute();
+
+      // Create network entries for all uplines (up to 15 levels)
+      const networkEntries = [];
+
+      // Direct sponsor relationship (level 1)
+      networkEntries.push({
+        agen_id: newAgen.id,
+        sponsor_id: input.sponsor_id,
+        level: 1
+      });
+
+      // Additional levels from sponsor's uplines
+      for (const networkEntry of sponsorNetwork) {
+        if (networkEntry.level < 15) {
+          networkEntries.push({
+            agen_id: newAgen.id,
+            sponsor_id: networkEntry.sponsor_id,
+            level: networkEntry.level + 1
+          });
+        }
+      }
+
+      // Insert all network entries
+      if (networkEntries.length > 0) {
+        await db.insert(jaringanTable)
+          .values(networkEntries)
+          .execute();
+      }
+    }
+
+    // Convert numeric fields back to numbers
+    const agen: Agen = {
+      ...newAgen,
+      total_komisi: parseFloat(newAgen.total_komisi),
+      saldo_komisi: parseFloat(newAgen.saldo_komisi)
+    };
+
+    return {
+      agen,
+      idAgen: generatedIdAgen
+    };
+
+  } catch (error) {
+    console.error('Agent creation failed:', error);
+    throw error;
+  }
+};
 
 export async function getAgenByUserId(userId: number): Promise<Agen | null> {
     // This is a placeholder declaration! Real code should be implemented here.
@@ -77,7 +206,7 @@ export async function getAgenByUserId(userId: number): Promise<Agen | null> {
     });
 }
 
-export async function getAgenDashboardStats(agenId: number): Promise<DashboardStats> {
+export async function getAgenDashboardStats(agenId: number): Promise<any> {
     // This is a placeholder declaration! Real code should be implemented here.
     // The goal of this handler is calculating agent dashboard statistics including downlines, commission, rewards, etc.
     return Promise.resolve({
@@ -93,7 +222,7 @@ export async function getAgenDashboardStats(agenId: number): Promise<DashboardSt
     });
 }
 
-export async function getAgenNetwork(agenId: number): Promise<Jaringan[]> {
+export async function getAgenNetwork(agenId: number): Promise<any[]> {
     // This is a placeholder declaration! Real code should be implemented here.
     // The goal of this handler is fetching agent's network structure up to 15 levels.
     return Promise.resolve([
@@ -107,7 +236,7 @@ export async function getAgenNetwork(agenId: number): Promise<Jaringan[]> {
     ]);
 }
 
-export async function getNetworkByLevel(sponsorId: number, level: number): Promise<Agen[]> {
+export async function getNetworkByLevel(sponsorId: number, level: number): Promise<any[]> {
     // This is a placeholder declaration! Real code should be implemented here.
     // The goal of this handler is fetching all agents at specific network level under a sponsor.
     return Promise.resolve([
@@ -141,7 +270,7 @@ export async function getNetworkByLevel(sponsorId: number, level: number): Promi
     ]);
 }
 
-export async function upgradeAgen(agenId: number, upgrade: CreateUpgrade): Promise<{ success: boolean; transaksiId: number }> {
+export async function upgradeAgen(agenId: number, upgrade: any): Promise<{ success: boolean; transaksiId: number }> {
     // This is a placeholder declaration! Real code should be implemented here.
     // The goal of this handler is upgrading agent package (Silver->Gold, etc) and creating transaction.
     return Promise.resolve({
